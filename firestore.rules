@@ -1,0 +1,121 @@
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Collection: bots
+// Document ID: botId
+// Fields:
+//   - token: string (required) - Telegram Bot API token
+//   - name: string (required) - Display name
+//   - ownerId: string (required) - UID of the owner
+//   - status: string (required, enum: ['active', 'inactive'])
+//   - createdAt: timestamp (required)
+//
+// Collection: broadcasts
+// Document ID: broadcastId
+// Fields:
+//   - message: string (required, max 4096) - Message content
+//   - botIds: list (required) - List of bot IDs
+//   - status: string (required, enum: ['pending', 'sent', 'failed'])
+//   - ownerId: string (required)
+//   - createdAt: timestamp (required)
+//   - scheduledAt: timestamp (optional)
+//
+// Collection: chats
+// Document ID: botId_chatId
+// Fields:
+//   - chatId: number (required)
+//   - botId: string (required)
+//   - firstName: string (optional)
+//   - username: string (optional)
+//   - lastInteraction: string (required, ISO 8601)
+//
+// ===============================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.ownerId;
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function isValidBot(data) {
+      return data.token is string && data.token.size() > 10 && data.token.size() < 100 &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 50 &&
+             data.status in ['active', 'inactive'] &&
+             data.ownerId == request.auth.uid;
+    }
+
+    function isValidBroadcast(data) {
+      return data.message is string && data.message.size() > 0 && data.message.size() <= 4096 &&
+             data.botIds is list && data.botIds.size() <= 50 &&
+             data.status in ['pending', 'sending', 'sent', 'failed'] &&
+             (!('delay' in data) || data.delay is number) &&
+             (!('targetType' in data) || data.targetType in ['private', 'groups', 'all']) &&
+             data.ownerId == request.auth.uid;
+    }
+
+    function isValidGroup(data) {
+      return data.groupId is number &&
+             data.botId is string &&
+             (!('title' in data) || (data.title is string && data.title.size() < 100)) &&
+             (!('type' in data) || data.type in ['group', 'supergroup']);
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /bots/{botId} {
+      allow read: if isDocOwner();
+      allow create: if isAuthenticated() && hasRequiredFields(['token', 'name', 'ownerId', 'status', 'createdAt']) && isValidBot(request.resource.data);
+      allow update: if isDocOwner() && isValidBot(request.resource.data);
+      allow delete: if isDocOwner();
+    }
+
+    match /broadcasts/{broadcastId} {
+      allow read: if isDocOwner();
+      allow create: if isAuthenticated() && hasRequiredFields(['message', 'botIds', 'status', 'ownerId', 'createdAt']) && isValidBroadcast(request.resource.data);
+      allow update: if isDocOwner() && isValidBroadcast(request.resource.data);
+      allow delete: if isDocOwner();
+    }
+
+    match /chats/{chatBotId} {
+      allow read: if isAuthenticated() && exists(/databases/$(database)/documents/bots/$(resource.data.botId)) && 
+                  get(/databases/$(database)/documents/bots/$(resource.data.botId)).data.ownerId == request.auth.uid;
+      allow write: if false; 
+    }
+
+    match /groups/{groupBotId} {
+      allow read: if isAuthenticated() && exists(/databases/$(database)/documents/bots/$(resource.data.botId)) && 
+                  get(/databases/$(database)/documents/bots/$(resource.data.botId)).data.ownerId == request.auth.uid;
+      allow write: if false; 
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

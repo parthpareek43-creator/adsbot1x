@@ -1,0 +1,51 @@
+{
+  "entities": {
+    "Bot": {
+      "title": "Bot",
+      "description": "A managed Telegram bot instance.",
+      "type": "object",
+      "properties": {
+        "token": { "type": "string", "description": "The Telegram Bot API token." },
+        "name": { "type": "string", "description": "The display name of the bot." },
+        "username": { "type": "string", "description": "The @username of the bot." },
+        "status": { "type": "string", "enum": ["active", "inactive"], "description": "Current status of the bot." },
+        "ownerId": { "type": "string", "description": "The UID of the user who owns this bot." },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["token", "name", "ownerId"]
+    },
+    "Broadcast": {
+      "title": "Broadcast",
+      "description": "A message to be sent to multiple chats or groups.",
+      "type": "object",
+      "properties": {
+        "message": { "type": "string", "description": "The content of the message." },
+        "botIds": { "type": "array", "items": { "type": "string" }, "description": "List of bot IDs to use." },
+        "delay": { "type": "number", "description": "Delay in seconds between messages." },
+        "targetType": { "type": "string", "enum": ["private", "groups", "all"], "description": "Target audience type." },
+        "scheduledAt": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["pending", "sending", "sent", "failed"] },
+        "ownerId": { "type": "string" }
+      },
+      "required": ["message", "botIds", "status", "ownerId"]
+    },
+    "Group": {
+      "title": "Group",
+      "description": "A Telegram group where a bot is a member.",
+      "type": "object",
+      "properties": {
+        "groupId": { "type": "number" },
+        "botId": { "type": "string" },
+        "title": { "type": "string" },
+        "type": { "type": "string" }
+      },
+      "required": ["groupId", "botId"]
+    }
+  },
+  "firestore": {
+    "/bots/{botId}": { "schema": "Bot", "description": "Managed bots." },
+    "/broadcasts/{broadcastId}": { "schema": "Broadcast", "description": "Scheduled or sent broadcasts." },
+    "/chats/{chatBotId}": { "schema": "Chat", "description": "Private chats." },
+    "/groups/{groupBotId}": { "schema": "Group", "description": "Groups joined by bots." }
+  }
+}

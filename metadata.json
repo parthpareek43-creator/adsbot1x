@@ -1,0 +1,5 @@
+{
+  "name": "AdsAppBot Manager",
+  "description": "Advanced Telegram bot management dashboard. Add multiple bots, broadcast messages, and schedule tasks with ease.",
+  "requestFramePermissions": []
+}
