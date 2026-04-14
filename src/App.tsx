@@ -24,11 +24,19 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+
   const handleLogin = async () => {
+    setLoginError(null);
+    setIsLoggingIn(true);
     try {
       await signInAnonymously(auth);
     } catch (e) {
       console.error("Login failed", e);
+      setLoginError((e as Error).message);
+    } finally {
+      setIsLoggingIn(false);
     }
   };
 
@@ -55,12 +63,26 @@ export default function App() {
             <p className="text-sm text-center opacity-70">
               Welcome to the advanced Telegram bot management system. Please sign in to access your dashboard.
             </p>
+            
+            {loginError && (
+              <div className="p-3 bg-red-50 border border-red-200 text-red-600 text-[10px] font-mono uppercase tracking-tight text-center">
+                Error: {loginError}
+              </div>
+            )}
+
             <Button 
               onClick={handleLogin}
+              disabled={isLoggingIn}
               className="w-full bg-[#141414] text-[#E4E3E0] hover:bg-[#141414]/90 rounded-none font-mono text-xs uppercase tracking-widest py-6"
             >
-              <LogIn size={18} className="mr-2" />
-              Enter Dashboard
+              {isLoggingIn ? (
+                "Connecting..."
+              ) : (
+                <>
+                  <LogIn size={18} className="mr-2" />
+                  Enter Dashboard
+                </>
+              )}
             </Button>
           </CardContent>
         </Card>
@@ -213,5 +235,3 @@ export default function App() {
     </div>
   );
 }
-
-
