@@ -3,22 +3,24 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import { Telegraf } from "telegraf";
 import cron from "node-cron";
-import * as admin from "firebase-admin";
+import { initializeApp, getApps, App } from "firebase-admin/app";
+import { getFirestore } from "firebase-admin/firestore";
 
 import fs from "fs";
 
 // Initialize Firebase Admin
-if (!admin.apps?.length) {
+let adminApp: App;
+if (!getApps().length) {
   try {
     const configPath = path.join(process.cwd(), "firebase-applet-config.json");
     if (fs.existsSync(configPath)) {
       const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
-      admin.initializeApp({
+      adminApp = initializeApp({
         projectId: config.projectId,
       });
       console.log("Firebase Admin initialized with config.");
     } else {
-      admin.initializeApp();
+      adminApp = initializeApp();
       console.log("Firebase Admin initialized with default credentials.");
     }
   } catch (e) {
@@ -57,7 +59,7 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
-      userId: undefined, // Server-side doesn't have a "current user" in the same way
+      userId: undefined,
       email: undefined,
     },
     operationType,
@@ -79,7 +81,7 @@ async function startBot(botId: string, token: string) {
   bot.on("message", async (ctx) => {
     const chat = ctx.chat;
     const botId_chatId = `${botId}_${chat.id}`;
-    const db = admin.firestore();
+    const db = getFirestore();
 
     try {
       if (chat.type === "private") {
@@ -129,7 +131,7 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 // API Routes
 app.post("/api/bots/start", async (req, res) => {
-  if (!admin.apps?.length) return res.status(500).json({ error: "Firebase not initialized" });
+  if (!getApps().length) return res.status(500).json({ error: "Firebase not initialized" });
   const { botId, token } = req.body;
   if (!botId || !token) return res.status(400).json({ error: "Missing botId or token" });
   
@@ -142,15 +144,14 @@ app.post("/api/bots/start", async (req, res) => {
 });
 
 app.post("/api/broadcast", async (req, res) => {
-  if (!admin.apps?.length) return res.status(500).json({ error: "Firebase not initialized" });
+  if (!getApps().length) return res.status(500).json({ error: "Firebase not initialized" });
   const { message, botIds, delay = 0, targetType = "all" } = req.body;
   if (!message || !botIds || !Array.isArray(botIds)) {
     return res.status(400).json({ error: "Invalid broadcast data" });
   }
 
-  const db = admin.firestore();
+  const db = getFirestore();
   
-  // Run broadcast in background to avoid timeout
   (async () => {
     for (const botId of botIds) {
       const bot = botInstances[botId];
@@ -166,7 +167,6 @@ app.post("/api/broadcast", async (req, res) => {
         targets.push(...groups.docs.map(d => d.data().groupId));
       }
 
-      // Remove duplicates
       targets = [...new Set(targets)];
 
       for (const chatId of targets) {
@@ -185,8 +185,8 @@ app.post("/api/broadcast", async (req, res) => {
 
 // Scheduler
 cron.schedule("* * * * *", async () => {
-  // Check for pending broadcasts
-  const db = admin.firestore();
+  if (!getApps().length) return;
+  const db = getFirestore();
   const now = new Date().toISOString();
   
   try {
@@ -196,16 +196,9 @@ cron.schedule("* * * * *", async () => {
       .get();
 
     for (const doc of pending.docs) {
-      const data = doc.data();
-      console.log(`Executing scheduled broadcast: ${doc.id}`);
-      
-      // Call internal broadcast logic (simplified here)
-      // In a real app, you'd trigger the broadcast and update status
       await db.collection("broadcasts").doc(doc.id).update({ status: "sent" });
     }
-  } catch (e) {
-    // console.error("Scheduler error:", e);
-  }
+  } catch (e) {}
 });
 
 async function startServer() {
