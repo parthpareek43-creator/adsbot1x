@@ -8,7 +8,7 @@ import * as admin from "firebase-admin";
 import fs from "fs";
 
 // Initialize Firebase Admin
-if (!admin.apps.length) {
+if (!admin.apps?.length) {
   try {
     const configPath = path.join(process.cwd(), "firebase-applet-config.json");
     if (fs.existsSync(configPath)) {
@@ -34,6 +34,39 @@ app.use(express.json());
 // In-memory store for active bot instances
 const botInstances: Record<string, Telegraf> = {};
 
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId: string | undefined;
+    email: string | undefined;
+  }
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: undefined, // Server-side doesn't have a "current user" in the same way
+      email: undefined,
+    },
+    operationType,
+    path
+  }
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
+
 async function startBot(botId: string, token: string) {
   if (botInstances[botId]) {
     try {
@@ -50,20 +83,30 @@ async function startBot(botId: string, token: string) {
 
     try {
       if (chat.type === "private") {
-        await db.collection("chats").doc(botId_chatId).set({
-          chatId: chat.id,
-          botId: botId,
-          firstName: "first_name" in chat ? chat.first_name : "",
-          username: "username" in chat ? chat.username : "",
-          lastInteraction: new Date().toISOString()
-        }, { merge: true });
+        const path = `chats/${botId_chatId}`;
+        try {
+          await db.collection("chats").doc(botId_chatId).set({
+            chatId: chat.id,
+            botId: botId,
+            firstName: "first_name" in chat ? chat.first_name : "",
+            username: "username" in chat ? chat.username : "",
+            lastInteraction: new Date().toISOString()
+          }, { merge: true });
+        } catch (e) {
+          handleFirestoreError(e, OperationType.WRITE, path);
+        }
       } else if (chat.type === "group" || chat.type === "supergroup") {
-        await db.collection("groups").doc(botId_chatId).set({
-          groupId: chat.id,
-          botId: botId,
-          title: "title" in chat ? chat.title : "Unknown Group",
-          type: chat.type
-        }, { merge: true });
+        const path = `groups/${botId_chatId}`;
+        try {
+          await db.collection("groups").doc(botId_chatId).set({
+            groupId: chat.id,
+            botId: botId,
+            title: "title" in chat ? chat.title : "Unknown Group",
+            type: chat.type
+          }, { merge: true });
+        } catch (e) {
+          handleFirestoreError(e, OperationType.WRITE, path);
+        }
       }
     } catch (e) {
       console.error("Error saving chat/group info:", e);
@@ -86,7 +129,7 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 // API Routes
 app.post("/api/bots/start", async (req, res) => {
-  if (!admin.apps.length) return res.status(500).json({ error: "Firebase not initialized" });
+  if (!admin.apps?.length) return res.status(500).json({ error: "Firebase not initialized" });
   const { botId, token } = req.body;
   if (!botId || !token) return res.status(400).json({ error: "Missing botId or token" });
   
@@ -99,7 +142,7 @@ app.post("/api/bots/start", async (req, res) => {
 });
 
 app.post("/api/broadcast", async (req, res) => {
-  if (!admin.apps.length) return res.status(500).json({ error: "Firebase not initialized" });
+  if (!admin.apps?.length) return res.status(500).json({ error: "Firebase not initialized" });
   const { message, botIds, delay = 0, targetType = "all" } = req.body;
   if (!message || !botIds || !Array.isArray(botIds)) {
     return res.status(400).json({ error: "Invalid broadcast data" });
